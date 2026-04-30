@@ -1,6 +1,8 @@
 import os
+import io
 import httpx
 import json
+from PIL import Image
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
@@ -62,10 +64,16 @@ async def analyze_image(image_url: str) -> str:
         resp = await http_client.get(image_url)
         resp.raise_for_status()
         image_bytes = resp.content
-        content_type = resp.headers.get("content-type", "image/jpeg")
+
+    # 이미지 압축 (800px로 리사이즈)
+    img = Image.open(io.BytesIO(image_bytes))
+    img.thumbnail((800, 800))
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=70)
+    image_bytes = buf.getvalue()
 
     # Gemini 호출 (새 SDK)
-    image_part = types.Part.from_bytes(data=image_bytes, mime_type=content_type)
+    image_part = types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg")
     response = await client.aio.models.generate_content(
         model=MODEL_NAME,
         contents=[PROMPT, image_part]
