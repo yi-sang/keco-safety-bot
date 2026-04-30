@@ -5,7 +5,7 @@ def parse_image_url(action: dict) -> str | None:
     """카카오 이미지 보안전송 플러그인 파라미터에서 첫 번째 이미지 URL 추출"""
     try:
         params = action.get("params", {})
-        raw = params.get("secureimage")
+        raw = params.get("이미지") or params.get("secureimage")
         if not raw:
             return None
 
