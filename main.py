@@ -13,6 +13,7 @@ async def skill(request: Request):
         print(f"[REQUEST] {body}")
         action = body.get("action", {})
 
+        print(f"[ACTION PARAMS] {action.get('params', {})}")
         image_url = parse_image_url(action)
         print(f"[IMAGE URL] {image_url}")
 
