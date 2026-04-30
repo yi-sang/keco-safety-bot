@@ -11,7 +11,8 @@ client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 MODEL_NAME = "gemini-3-flash-preview"
 
-PROMPT = """
+PROMPT = """[IMPORTANT] Respond in JSON only. Be concise.
+
 당신은 공사현장 안전 전문가입니다.
 아래 사진을 분석하여 위험요소를 파악하세요.
 
@@ -65,7 +66,7 @@ async def analyze_image(image_url: str) -> str:
 
     # Gemini 호출 (새 SDK)
     image_part = types.Part.from_bytes(data=image_bytes, mime_type=content_type)
-    response = client.models.generate_content(
+    response = await client.aio.models.generate_content(
         model=MODEL_NAME,
         contents=[PROMPT, image_part]
     )
@@ -83,9 +84,7 @@ async def analyze_image(image_url: str) -> str:
 
 def _format_result(result: dict) -> str:
     """Gemini 분석 결과를 카카오 응답 텍스트로 포맷"""
-    lines = []
-    lines.append("📋 공사현장 위험요소 분석 결과\n")
-    lines.append(f"[현장 상황]\n{result.get('scene_summary', '')}\n")
+    lines = ["📋 위험요소 분석 결과\n"]
 
     hazards = result.get("hazards", [])
     if not hazards:
@@ -96,14 +95,8 @@ def _format_result(result: dict) -> str:
             name = RISK_CODE_KR.get(code, code)
             level = h.get("risk_level", "하")
             emoji = RISK_LEVEL_EMOJI.get(level, "")
-            lines.append(f"[위험요소 {i}] {emoji} {name}")
-            lines.append(f"위험도: {level}")
-            lines.append(f"근거: {h.get('reason', '')}")
-            lines.append(f"즉시 조치: {h.get('action', '')}\n")
+            lines.append(f"{i}. {emoji}{name} ({level})")
+            lines.append(f"→ {h.get('action', '')}\n")
 
-    uncertainty = result.get("uncertainty_note", "")
-    if uncertainty:
-        lines.append(f"⚠️ {uncertainty}\n")
-
-    lines.append("※ 본 결과는 사진 기반 1차 분석이며 최종 판단은 현장 점검이 필요합니다.")
+    lines.append("※ 현장 점검으로 최종 확인 필요")
     return "\n".join(lines)
