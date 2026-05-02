@@ -107,11 +107,17 @@ async def safety_question(request: Request, background_tasks: BackgroundTasks):
         user_request = body.get("userRequest", {})
         callback_url = user_request.get("callbackUrl")
 
-        question = action.get("params", {}).get("질문") or user_request.get("utterance", "")
+        question = action.get("params", {}).get("질문") or ""
+        # utterance가 블록 트리거 발화 자체인 경우 질문으로 사용하지 않음
+        if not question:
+            utterance = user_request.get("utterance", "").strip()
+            TRIGGER_PHRASES = {"현장안전질문", "안전 질문", "궁금한게 있어", "안전 관련 질문할게", "현장 안전 규정 물어볼게"}
+            if utterance and utterance not in TRIGGER_PHRASES:
+                question = utterance
         print(f"[QA QUESTION] {question}")
 
         if not question:
-            return JSONResponse(content=make_simple_text("질문 내용을 입력해주세요."))
+            return JSONResponse(content=make_simple_text("💬 궁금한 안전 관련 내용을 입력해주세요."))
 
         if callback_url:
             background_tasks.add_task(process_question_callback, callback_url, question)
@@ -168,11 +174,17 @@ async def safety_checklist(request: Request, background_tasks: BackgroundTasks):
         user_request = body.get("userRequest", {})
         callback_url = user_request.get("callbackUrl")
 
-        work_type = action.get("params", {}).get("작업유형") or user_request.get("utterance", "")
+        work_type = action.get("params", {}).get("작업유형") or ""
+        # utterance가 블록 트리거 발화 자체인 경우 작업유형으로 사용하지 않음
+        if not work_type:
+            utterance = user_request.get("utterance", "").strip()
+            TRIGGER_PHRASES = {"현장안전체크", "안전 체크리스트", "체크리스트", "안전체크", "작업 전 체크리스트", "안전 점검 항목 알려줘"}
+            if utterance and utterance not in TRIGGER_PHRASES:
+                work_type = utterance
         print(f"[CHECK WORK TYPE] {work_type}")
 
         if not work_type:
-            return JSONResponse(content=make_simple_text("작업 유형을 입력해주세요.\n예) 고소작업, 전기작업, 굴착작업 등"))
+            return JSONResponse(content=make_simple_text("✅ 체크리스트가 필요한 작업 유형을 입력해주세요.\n(예: 고소작업, 전기작업, 굴착작업, 용접작업)"))
 
         if callback_url:
             background_tasks.add_task(process_checklist_callback, callback_url, work_type)
