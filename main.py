@@ -174,13 +174,15 @@ async def safety_checklist(request: Request, background_tasks: BackgroundTasks):
         user_request = body.get("userRequest", {})
         callback_url = user_request.get("callbackUrl")
 
-        work_type = action.get("params", {}).get("작업유형") or ""
-        # utterance가 블록 트리거 발화 자체인 경우 작업유형으로 사용하지 않음
-        if not work_type:
+        TRIGGER_PHRASES = {"현장안전체크", "안전 체크리스트", "체크리스트", "안전체크", "작업 전 체크리스트", "안전 점검 항목 알려줘", "현장 안전 체크"}
+
+        param_value = action.get("params", {}).get("작업유형", "").strip()
+        # params에 값이 있어도 트리거 발화 자체면 무시
+        if param_value and param_value not in TRIGGER_PHRASES:
+            work_type = param_value
+        else:
             utterance = user_request.get("utterance", "").strip()
-            TRIGGER_PHRASES = {"현장안전체크", "안전 체크리스트", "체크리스트", "안전체크", "작업 전 체크리스트", "안전 점검 항목 알려줘"}
-            if utterance and utterance not in TRIGGER_PHRASES:
-                work_type = utterance
+            work_type = utterance if utterance and utterance not in TRIGGER_PHRASES else ""
         print(f"[CHECK WORK TYPE] {work_type}")
 
         if not work_type:
