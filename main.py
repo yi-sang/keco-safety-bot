@@ -42,7 +42,7 @@ async def skill(request: Request, background_tasks: BackgroundTasks):
             "현장안전체크", "안전 체크리스트", "체크리스트", "안전체크", "작업 전 체크리스트", "안전 점검 항목 알려줘", "현장 안전 체크",
         }
         if utterance in ESCAPE_PHRASES:
-            return JSONResponse(content=make_simple_text("입력이 취소되었습니다.\n원하시는 기능을 선택해주세요.\n\n📸 사진 위험분석\n💬 현장안전질문\n✅ 현장안전체크"))
+            return JSONResponse(content=make_simple_text("입력이 취소되었습니다.\n원하시는 기능을 선택해주세요.\n\n📸 사진위험분석\n💬 현장안전질문\n✅ 현장안전체크"))
 
         print(f"[ACTION PARAMS] {action.get('params', {})}")
         print(f"[CALLBACK URL] {callback_url}")
@@ -125,7 +125,7 @@ async def safety_question(request: Request, background_tasks: BackgroundTasks):
             "현장안전체크", "안전 체크리스트", "체크리스트", "안전체크", "작업 전 체크리스트", "안전 점검 항목 알려줘", "현장 안전 체크",
         }
         if utterance in ESCAPE_PHRASES or question in ESCAPE_PHRASES:
-            return JSONResponse(content=make_simple_text("입력이 취소되었습니다.\n원하시는 기능을 선택해주세요.\n\n📸 사진 위험분석\n💬 현장안전질문\n✅ 현장안전체크"))
+            return JSONResponse(content=make_simple_text("입력이 취소되었습니다.\n원하시는 기능을 선택해주세요.\n\n📸 사진위험분석\n💬 현장안전질문\n✅ 현장안전체크"))
         if not question:
             if utterance and utterance not in TRIGGER_PHRASES:
                 question = utterance
@@ -199,7 +199,7 @@ async def safety_checklist(request: Request, background_tasks: BackgroundTasks):
         utterance = user_request.get("utterance", "").strip()
         param_value = action.get("params", {}).get("작업유형", "").strip()
         if utterance in ESCAPE_PHRASES or param_value in ESCAPE_PHRASES:
-            return JSONResponse(content=make_simple_text("입력이 취소되었습니다.\n원하시는 기능을 선택해주세요.\n\n📸 사진 위험분석\n💬 현장안전질문\n✅ 현장안전체크"))
+            return JSONResponse(content=make_simple_text("입력이 취소되었습니다.\n원하시는 기능을 선택해주세요.\n\n📸 사진위험분석\n💬 현장안전질문\n✅ 현장안전체크"))
 
         # params에 값이 있어도 트리거 발화 자체면 무시
         if param_value and param_value not in TRIGGER_PHRASES:
