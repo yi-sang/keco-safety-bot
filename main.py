@@ -108,10 +108,13 @@ async def safety_question(request: Request, background_tasks: BackgroundTasks):
         callback_url = user_request.get("callbackUrl")
 
         question = action.get("params", {}).get("질문") or ""
-        # utterance가 블록 트리거 발화 자체인 경우 질문으로 사용하지 않음
+        utterance = user_request.get("utterance", "").strip()
+        # 탈출 발화 또는 트리거 발화인 경우 질문으로 사용하지 않음
+        TRIGGER_PHRASES = {"현장안전질문", "안전 질문", "궁금한게 있어", "안전 관련 질문할게", "현장 안전 규정 물어볼게"}
+        ESCAPE_PHRASES = {"그만", "취소", "처음으로", "홈", "메뉴", "돌아가기", "종료"}
+        if utterance in ESCAPE_PHRASES:
+            return JSONResponse(content=make_simple_text("입력이 취소되었습니다.\n원하시는 기능을 선택해주세요.\n\n📸 사진 위험분석\n💬 현장안전질문\n✅ 현장안전체크"))
         if not question:
-            utterance = user_request.get("utterance", "").strip()
-            TRIGGER_PHRASES = {"현장안전질문", "안전 질문", "궁금한게 있어", "안전 관련 질문할게", "현장 안전 규정 물어볼게"}
             if utterance and utterance not in TRIGGER_PHRASES:
                 question = utterance
         print(f"[QA QUESTION] {question}")
