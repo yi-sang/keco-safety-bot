@@ -36,6 +36,14 @@ async def skill(request: Request, background_tasks: BackgroundTasks):
         user_request = body.get("userRequest", {})
         callback_url = user_request.get("callbackUrl")
 
+        utterance = user_request.get("utterance", "").strip()
+        ESCAPE_PHRASES = {
+            "현장안전질문", "안전 질문", "궁금한게 있어", "안전 관련 질문할게", "현장 안전 규정 물어볼게",
+            "현장안전체크", "안전 체크리스트", "체크리스트", "안전체크", "작업 전 체크리스트", "안전 점검 항목 알려줘", "현장 안전 체크",
+        }
+        if utterance in ESCAPE_PHRASES:
+            return JSONResponse(content=make_simple_text("입력이 취소되었습니다.\n원하시는 기능을 선택해주세요.\n\n📸 사진 위험분석\n💬 현장안전질문\n✅ 현장안전체크"))
+
         print(f"[ACTION PARAMS] {action.get('params', {})}")
         print(f"[CALLBACK URL] {callback_url}")
         image_url = parse_image_url(action)
@@ -111,7 +119,11 @@ async def safety_question(request: Request, background_tasks: BackgroundTasks):
         utterance = user_request.get("utterance", "").strip()
         # 탈출 발화 또는 트리거 발화인 경우 질문으로 사용하지 않음
         TRIGGER_PHRASES = {"현장안전질문", "안전 질문", "궁금한게 있어", "안전 관련 질문할게", "현장 안전 규정 물어볼게"}
-        ESCAPE_PHRASES = {"아니", "멈춰", "홈", "그만", "처음으로", "취소", "메뉴", "돌아가기", "종료"}
+        ESCAPE_PHRASES = {
+            "아니", "멈춰", "홈", "그만", "처음으로", "취소", "메뉴", "돌아가기", "종료",
+            "사진위험분석", "위험분석", "사진 분석", "현장사진",
+            "현장안전체크", "안전 체크리스트", "체크리스트", "안전체크", "작업 전 체크리스트", "안전 점검 항목 알려줘", "현장 안전 체크",
+        }
         if utterance in ESCAPE_PHRASES or question in ESCAPE_PHRASES:
             return JSONResponse(content=make_simple_text("입력이 취소되었습니다.\n원하시는 기능을 선택해주세요.\n\n📸 사진 위험분석\n💬 현장안전질문\n✅ 현장안전체크"))
         if not question:
@@ -178,7 +190,11 @@ async def safety_checklist(request: Request, background_tasks: BackgroundTasks):
         callback_url = user_request.get("callbackUrl")
 
         TRIGGER_PHRASES = {"현장안전체크", "안전 체크리스트", "체크리스트", "안전체크", "작업 전 체크리스트", "안전 점검 항목 알려줘", "현장 안전 체크"}
-        ESCAPE_PHRASES = {"아니", "멈춰", "그만", "취소", "처음으로", "홈", "메뉴", "돌아가기", "종료"}
+        ESCAPE_PHRASES = {
+            "아니", "멈춰", "그만", "취소", "처음으로", "홈", "메뉴", "돌아가기", "종료",
+            "사진위험분석", "위험분석", "사진 분석", "현장사진",
+            "현장안전질문", "안전 질문", "궁금한게 있어", "안전 관련 질문할게", "현장 안전 규정 물어볼게",
+        }
 
         utterance = user_request.get("utterance", "").strip()
         param_value = action.get("params", {}).get("작업유형", "").strip()
