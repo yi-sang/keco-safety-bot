@@ -108,3 +108,82 @@ def _format_result(result: dict) -> str:
 
     lines.append("※ 현장 점검으로 최종 확인 필요")
     return "\n".join(lines)
+
+
+SAFETY_QA_PROMPT = """당신은 건설/공사현장 안전 전문가입니다. 산업안전보건법과 관련 법령을 기반으로 답변하세요.
+
+질문: {question}
+
+[답변 규칙]
+1. 핵심만 간결하게 답변하세요 (카카오톡 말풍선 기준 500자 이내).
+2. 법령 기준이 있으면 명시하세요 (예: 산안법 제○조).
+3. 현장에서 바로 실행 가능한 내용으로 답변하세요.
+4. 공사현장과 무관한 질문은 "현장 안전 관련 질문만 답변드릴 수 있습니다."라고 안내하세요.
+"""
+
+SAFETY_CHECK_PROMPT = """당신은 건설/공사현장 안전 전문가입니다.
+
+작업 유형: {work_type}
+
+위 작업을 시작하기 전 반드시 확인해야 할 안전 체크리스트를 작성하세요.
+
+[규칙]
+1. 체크 항목은 7~10개로 작성하세요.
+2. 각 항목은 현장에서 즉시 확인 가능한 구체적인 내용으로 작성하세요.
+3. 반드시 아래 JSON 형식으로만 응답하세요.
+
+{{
+  "work_type": "작업명",
+  "items": [
+    {{"check": "체크 항목 내용", "category": "PPE/환경/장비/절차 중 하나"}}
+  ]
+}}
+"""
+
+CATEGORY_EMOJI = {
+    "PPE": "🦺",
+    "환경": "🏗️",
+    "장비": "🔧",
+    "절차": "📋",
+}
+
+
+async def answer_safety_question(question: str) -> str:
+    """안전 관련 텍스트 질문에 Gemini가 답변"""
+    prompt = SAFETY_QA_PROMPT.format(question=question)
+    response = await client.aio.models.generate_content(
+        model=MODEL_NAME,
+        contents=[prompt]
+    )
+    return response.text.strip()
+
+
+async def generate_safety_checklist(work_type: str) -> str:
+    """작업 유형에 맞는 안전 체크리스트 생성"""
+    prompt = SAFETY_CHECK_PROMPT.format(work_type=work_type)
+    response = await client.aio.models.generate_content(
+        model=MODEL_NAME,
+        contents=[prompt]
+    )
+
+    raw_text = response.text.strip()
+    if raw_text.startswith("```"):
+        raw_text = raw_text.split("```")[1]
+        if raw_text.startswith("json"):
+            raw_text = raw_text[4:]
+
+    result = json.loads(raw_text.strip())
+    return _format_checklist(result)
+
+
+def _format_checklist(result: dict) -> str:
+    work_type = result.get("work_type", "작업")
+    items = result.get("items", [])
+
+    lines = [f"✅ {work_type} 작업 전 안전 체크리스트\n"]
+    for i, item in enumerate(items, 1):
+        emoji = CATEGORY_EMOJI.get(item.get("category", ""), "▪️")
+        lines.append(f"{i}. {emoji} {item.get('check', '')}")
+
+    lines.append("\n※ 모든 항목 확인 후 작업 시작하세요.")
+    return "\n".join(lines)
