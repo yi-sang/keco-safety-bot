@@ -45,6 +45,15 @@ LAW_PRIORITY = ["4", "1", "3", "8", "2", "9", "11"]
 GUIDE_CATEGORY = 7
 MEDIA_CATEGORY = 6  # 유일하게 filepath(포털 원문 URL)를 제공
 
+# 위험코드 → 표시용 한글명. 아래 RISK_CODE_QUERY/RISK_CODE_MEDIA 와 같은 키를 쓴다.
+RISK_CODE_KR = {
+    "FALL_RISK": "추락 위험",
+    "PPE_HELMET_MISSING": "안전모 미착용",
+    "OPENING_UNPROTECTED": "개구부 방호 미흡",
+    "ELECTRIC_RISK": "감전 위험",
+    "LOAD_UNSTABLE": "적재 불량 / 낙하 위험",
+}
+
 # 위험코드 → 검색 설정. 실제 호출로 조문 적합도를 눈으로 확인해 고른 값이다.
 #   queries   : 검색 키워드. 한 단어로 핵심 조문이 안 잡히면 여러 개를 쓴다.
 #   per_query : 키워드 하나당 채택할 조문 수. 여러 키워드를 쓸 때 1로 두어야

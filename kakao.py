@@ -61,6 +61,12 @@ BUTTON_LABEL_LIMIT = 14        # 가로 2개 배치 시에는 8자
 MAX_BUTTONS_VERTICAL = 3
 MAX_BUTTONS_HORIZONTAL = 2
 
+# listCard: 항목 최대 5개 (위험코드 수와 같다). 항목마다 링크를 달 수 있어
+# 위험요소 N건 → 자료 N건을 한 말풍선에 담을 수 있는 유일한 타입이다.
+MAX_LIST_ITEMS = 5
+LIST_ITEM_TITLE_LIMIT = 36
+LIST_ITEM_DESC_LIMIT = 76
+
 
 def make_text_card(title: str, description: str, buttons: list[dict] | None = None,
                    vertical: bool = True) -> dict:
@@ -99,22 +105,48 @@ def make_simple_text_output(text: str) -> dict:
     return {"simpleText": {"text": text}}
 
 
-def make_analysis_response(text: str, risk_codes: list[str]) -> dict:
-    """사진분석 응답: 본문은 simpleText, KOSHA 자료 링크는 textCard 로 덧붙인다.
+def make_list_card(header: str, items: list[dict]) -> dict:
+    """listCard 말풍선. items 는 {title, description, url} 목록 (최대 5개)."""
+    return {
+        "listCard": {
+            "header": {"title": header},
+            "items": [
+                {
+                    "title": it["title"][:LIST_ITEM_TITLE_LIMIT],
+                    "description": it.get("description", "")[:LIST_ITEM_DESC_LIMIT],
+                    "link": {"web": it["url"]},
+                }
+                for it in items[:MAX_LIST_ITEMS]
+            ],
+        }
+    }
 
-    본문이 1000자까지 필요한데 textCard 는 400자가 한계라 한 말풍선에 못 담는다.
-    자료를 못 찾으면 textCard 없이 기존과 동일한 simpleText 응답이 나간다.
+
+def make_analysis_response(text: str, risk_codes: list[str]) -> dict:
+    """사진분석 응답: 본문은 simpleText, KOSHA 자료 링크는 listCard 로 덧붙인다.
+
+    감지된 위험요소 하나당 자료 한 건을 항목으로 넣어, 어느 위험에 대한
+    자료인지 알 수 있게 한다. 자료를 하나도 못 찾으면 textCard 없이
+    기존과 동일한 simpleText 단독 응답이 나간다.
+
+    본문이 1000자까지 필요한데 카드류는 그만큼 담지 못하고, outputs 는
+    말풍선 3개가 한계라 카드를 여러 개 붙일 수도 없다. 그래서 링크는
+    항목 5개까지 들어가는 listCard 하나로 모은다.
     """
-    for code in risk_codes:
+    items = []
+    for code in dict.fromkeys(risk_codes):  # 중복 코드 제거, 순서 유지
         media = kosha.media_for_code(code)
-        if not media:
-            continue
-        return make_outputs(
-            make_simple_text_output(text),
-            make_text_card(
-                "📎 KOSHA 안전보건자료",
-                media["title"],
-                [make_web_link_button("자료 원문 보기", media["url"])],
-            ),
-        )
-    return make_simple_text(text)
+        if media:
+            items.append({
+                "title": kosha.RISK_CODE_KR.get(code, code),
+                "description": media["title"],
+                "url": media["url"],
+            })
+
+    if not items:
+        return make_simple_text(text)
+
+    return make_outputs(
+        make_simple_text_output(text),
+        make_list_card("📎 KOSHA 안전보건자료", items),
+    )

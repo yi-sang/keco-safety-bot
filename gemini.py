@@ -62,13 +62,7 @@ KAKAO_TEXT_LIMIT = 1000
 LAW_PER_HAZARD = 1
 LAW_BODY_LEN = 90
 
-RISK_CODE_KR = {
-    "FALL_RISK": "추락 위험",
-    "PPE_HELMET_MISSING": "안전모 미착용",
-    "OPENING_UNPROTECTED": "개구부 방호 미흡",
-    "ELECTRIC_RISK": "감전 위험",
-    "LOAD_UNSTABLE": "적재 불량 / 낙하 위험",
-}
+RISK_CODE_KR = kosha.RISK_CODE_KR
 
 
 async def analyze_image(image_url: str) -> tuple[str, list[str]]:
