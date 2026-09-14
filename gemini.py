@@ -62,6 +62,13 @@ KAKAO_TEXT_LIMIT = 1000
 LAW_PER_HAZARD = 1
 LAW_BODY_LEN = 90
 
+# 위험요소를 전부 상세히 쓰면 4건째부터 1000자를 넘겨 조문 인용이 통째로
+# 잘려나간다. 위험도·confidence 상위 몇 건만 상세히 쓰고 나머지는 한 줄로
+# 요약해, 조문 원문을 항상 살리고 조치 우선순위도 드러나게 한다.
+# 요약된 위험도 KOSHA 자료 링크(listCard)에는 그대로 포함된다.
+MAX_DETAILED_HAZARDS = 3
+RISK_LEVEL_ORDER = {"상": 0, "중": 1, "하": 2}
+
 RISK_CODE_KR = kosha.RISK_CODE_KR
 
 
@@ -98,8 +105,21 @@ async def analyze_image(image_url: str) -> tuple[str, list[str]]:
             raw_text = raw_text[4:]
     result = json.loads(raw_text.strip())
 
-    codes = [h.get("code", "") for h in result.get("hazards", [])]
+    codes = [h.get("code", "") for h in _sort_hazards(result.get("hazards", []))]
     return _format_result(result), codes
+
+
+def _sort_hazards(hazards: list[dict]) -> list[dict]:
+    """위험도(상>중>하) 우선, 같으면 confidence 높은 순."""
+    def key(h: dict):
+        level = RISK_LEVEL_ORDER.get(h.get("risk_level"), 9)
+        try:
+            conf = float(h.get("confidence") or 0)
+        except (TypeError, ValueError):
+            conf = 0.0
+        return (level, -conf)
+
+    return sorted(hazards, key=key)
 
 
 def _format_result(result: dict) -> str:
@@ -111,11 +131,11 @@ def _format_result(result: dict) -> str:
     if summary:
         lines.append(f"📍 현장 상황: {summary}\n")
 
-    hazards = result.get("hazards", [])
+    hazards = _sort_hazards(result.get("hazards", []))
     if not hazards:
         lines.append("위험요소가 감지되지 않았습니다.")
     else:
-        for i, h in enumerate(hazards, 1):
+        for i, h in enumerate(hazards[:MAX_DETAILED_HAZARDS], 1):
             code = h.get("code", "")
             name = RISK_CODE_KR.get(code, code)
             level = h.get("risk_level", "하")
@@ -128,6 +148,14 @@ def _format_result(result: dict) -> str:
                 lines.append(f"      “{_clip(law['content'], LAW_BODY_LEN)}”")
                 cited = True
             lines.append("")
+
+        rest = hazards[MAX_DETAILED_HAZARDS:]
+        if rest:
+            labels = ", ".join(
+                f"{RISK_CODE_KR.get(h.get('code', ''), h.get('code', ''))}[{h.get('risk_level', '')}]"
+                for h in rest
+            )
+            lines.append(f"※ 그 외 {len(rest)}건 감지: {labels}\n")
 
     overall = result.get("overall_risk", "")
     if overall:
