@@ -1,7 +1,8 @@
 import httpx
 from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.responses import JSONResponse
-from kakao import parse_image_url, make_simple_text, make_error_response, make_no_image_response
+from kakao import (parse_image_url, make_simple_text, make_error_response,
+                   make_no_image_response, make_analysis_response)
 from gemini import analyze_image, answer_safety_question, generate_safety_checklist
 
 app = FastAPI()
@@ -10,9 +11,9 @@ app = FastAPI()
 async def process_and_callback(callback_url: str, image_url: str):
     """백그라운드에서 이미지 분석 후 callbackUrl로 결과 전송"""
     try:
-        result_text = await analyze_image(image_url)
-        print(f"[CALLBACK RESULT] {result_text[:100]}")
-        response_body = make_simple_text(result_text)
+        result_text, risk_codes = await analyze_image(image_url)
+        print(f"[CALLBACK RESULT] codes={risk_codes} {result_text[:100]}")
+        response_body = make_analysis_response(result_text, risk_codes)
     except Exception as e:
         import traceback
         print(f"[CALLBACK ERROR] {e}")
@@ -64,9 +65,9 @@ async def skill(request: Request, background_tasks: BackgroundTasks):
             })
         else:
             # 콜백 URL 없을 경우 기존 동기 방식 (5초 제한 주의)
-            result_text = await analyze_image(image_url)
-            print(f"[RESULT] {result_text[:100]}")
-            return JSONResponse(content=make_simple_text(result_text))
+            result_text, risk_codes = await analyze_image(image_url)
+            print(f"[RESULT] codes={risk_codes} {result_text[:100]}")
+            return JSONResponse(content=make_analysis_response(result_text, risk_codes))
 
     except Exception as e:
         import traceback

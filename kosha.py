@@ -66,9 +66,20 @@ RISK_CODE_QUERY = {
     },
 }
 
-# 위험코드별 조문은 고정이라 사전 조회해 캐시로 둔다 (scripts/build_law_cache.py).
+# 위험코드 → 안전보건 자료(category 6) 검색 설정. 이 카테고리만 포털 원문 URL을
+# 제공하므로 카카오 textCard 의 [원문 보기] 버튼은 여기서 나온다.
+#   prefer : 같은 키워드라도 건설현장에 쓸모 있는 자료를 앞으로 끌어올린다.
+RISK_CODE_MEDIA = {
+    "FALL_RISK": {"query": "추락", "prefer": ["건설현장"]},
+    "PPE_HELMET_MISSING": {"query": "안전모", "prefer": ["길잡이"]},
+    "OPENING_UNPROTECTED": {"query": "개구부", "prefer": ["덮개"]},
+    "ELECTRIC_RISK": {"query": "전기작업", "prefer": ["안전기준"]},
+    "LOAD_UNSTABLE": {"query": "적재", "prefer": ["가이드"]},
+}
+
+# 위험코드별 조문·자료는 고정이라 사전 조회해 캐시로 둔다 (scripts/build_kosha_cache.py).
 # 런타임 API 호출 없이 응답하므로 지연 0, 트래픽 0, 포털 장애와 무관하다.
-LAW_CACHE_PATH = pathlib.Path(__file__).parent / "data" / "law_cache.json"
+CACHE_PATH = pathlib.Path(__file__).parent / "data" / "kosha_cache.json"
 
 _HIGHLIGHT_RE = re.compile(r"</?em[^>]*>")
 # 조문 본문에 섞여 있는 편집 표기(<개정 2012. 3. 5.>, <신설 ...>). 인용에는 불필요하다.
@@ -149,22 +160,39 @@ async def fetch_laws_for_code(risk_code: str, limit: int = 2) -> list[dict]:
     return merged[:limit]
 
 
-def _load_law_cache() -> dict[str, list[dict]]:
+async def fetch_media_for_code(risk_code: str) -> dict | None:
+    """위험코드에 해당하는 안전보건 자료를 API에서 조회. 캐시 생성용."""
+    cfg = RISK_CODE_MEDIA.get(risk_code)
+    if not cfg:
+        return None
+
+    hits = [h for h in await search(cfg["query"], category=MEDIA_CATEGORY, rows=10) if h["url"]]
+    prefer = cfg.get("prefer", [])
+    hits.sort(key=lambda h: not any(p in h["title"] for p in prefer))
+    return hits[0] if hits else None
+
+
+def _load_cache() -> dict:
     try:
-        return json.loads(LAW_CACHE_PATH.read_text(encoding="utf-8"))["codes"]
+        return json.loads(CACHE_PATH.read_text(encoding="utf-8"))
     except Exception as e:
-        # 배포 번들에서 data/ 가 빠지면 조문만 조용히 사라져 원인 추적이 어렵다.
+        # 배포 번들에서 data/ 가 빠지면 조문·링크가 조용히 사라져 원인 추적이 어렵다.
         # vercel.json 의 includeFiles 설정을 확인할 것.
-        print(f"[KOSHA] 법령 캐시 로드 실패 ({LAW_CACHE_PATH}): {e}")
+        print(f"[KOSHA] 캐시 로드 실패 ({CACHE_PATH}): {e}")
         return {}
 
 
-_LAW_CACHE = _load_law_cache()
+_CACHE = _load_cache()
 
 
 def laws_for_code(risk_code: str) -> list[dict]:
     """위험코드에 해당하는 법령 조문 (캐시). 캐시가 없으면 빈 리스트."""
-    return _LAW_CACHE.get(risk_code, [])
+    return _CACHE.get("codes", {}).get(risk_code, [])
+
+
+def media_for_code(risk_code: str) -> dict | None:
+    """위험코드에 해당하는 안전보건 자료 (캐시). title/url 을 가진다."""
+    return _CACHE.get("media", {}).get(risk_code)
 
 
 async def find_guide(query: str) -> dict | None:

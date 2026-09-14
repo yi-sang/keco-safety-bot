@@ -71,8 +71,11 @@ RISK_CODE_KR = {
 }
 
 
-async def analyze_image(image_url: str) -> str:
-    """이미지 URL을 받아 Gemini로 분석 후 카카오 응답용 텍스트 반환"""
+async def analyze_image(image_url: str) -> tuple[str, list[str]]:
+    """이미지 URL을 분석해 (카카오 응답 텍스트, 감지된 위험코드 목록) 반환.
+
+    위험코드는 응답에 붙일 KOSHA 자료 링크(textCard)를 고르는 데 쓴다.
+    """
     # 이미지 다운로드
     async with httpx.AsyncClient(timeout=10.0) as http_client:
         resp = await http_client.get(image_url)
@@ -101,7 +104,8 @@ async def analyze_image(image_url: str) -> str:
             raw_text = raw_text[4:]
     result = json.loads(raw_text.strip())
 
-    return _format_result(result)
+    codes = [h.get("code", "") for h in result.get("hazards", [])]
+    return _format_result(result), codes
 
 
 def _format_result(result: dict) -> str:

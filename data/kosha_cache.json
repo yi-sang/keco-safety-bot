@@ -75,5 +75,27 @@
         "url": ""
       }
     ]
+  },
+  "media": {
+    "FALL_RISK": {
+      "title": "건설현장 추락사고 예방 좋은예 나쁜예",
+      "url": "https://portal.kosha.or.kr/archive/cent-archive/master-arch/master-list1/master-detail1?medSeq=42054"
+    },
+    "PPE_HELMET_MISSING": {
+      "title": "안전한 보호구 착용 길잡이(안전모) OPS",
+      "url": "https://portal.kosha.or.kr/archive/cent-archive/master-arch/master-list1/master-detail1?medSeq=43631"
+    },
+    "OPENING_UNPROTECTED": {
+      "title": "[중대재해사례]개구부 덮개를 치우던 중 개구부로 추락",
+      "url": "https://portal.kosha.or.kr/archive/cent-archive/master-arch/master-list1/master-detail1?medSeq=31159"
+    },
+    "ELECTRIC_RISK": {
+      "title": "[안전기준] 전기작업에 대한 위험방지",
+      "url": "https://portal.kosha.or.kr/archive/cent-archive/master-arch/master-list1/master-detail1?medSeq=46846"
+    },
+    "LOAD_UNSTABLE": {
+      "title": "화물 적재 안전작업 가이드 2종",
+      "url": "https://portal.kosha.or.kr/archive/cent-archive/master-arch/master-list1/master-detail1?medSeq=44495"
+    }
   }
 }
