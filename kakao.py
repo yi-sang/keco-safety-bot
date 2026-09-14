@@ -135,7 +135,8 @@ def _case_items(risk_codes: list[str]) -> list[dict]:
                 items.append({
                     "title": f"{c['title']} ({c['date']})",
                     "description": c.get("summary", ""),
-                    "url": c.get("url", ""),
+                    # 게시글 웹페이지 우선, 없으면 첨부 PDF 직링크
+                    "url": c.get("url") or c.get("pdf_url", ""),
                 })
         depth += 1
     return items

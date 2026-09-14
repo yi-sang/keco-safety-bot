@@ -33,6 +33,16 @@ CASE_LIST_URL = "https://apis.data.go.kr/B552468/disaster_api02/getdisaster_api0
 # 재해사례 첨부파일 (15121008) — boardno 로 PDF 다운로드 URL 을 얻는다.
 CASE_ATTACH_URL = "https://apis.data.go.kr/B552468/disaster_attach_api02/Disaster_attach_api02"
 CONSTRUCTION_SECTOR = "3"
+# 재해사례 게시글 웹페이지. bbsId 는 업종별 게시판 ID로, 첨부파일 URL
+#   /file/down/stdboard/{bbsId}/{pstNo}/{fileId}
+# 에서 그대로 뽑아 쓴다. 경로의 construc-industry 는 건설업 탭이며,
+# 우리는 건설업 사례만 캐시하므로 고정이다.
+CASE_PAGE_URL = (
+    "https://portal.kosha.or.kr/archive/disaster-case/accident-case"
+    "/acccase-industry/construc-industry?bbsId={bbs_id}&pstNo={post_no}"
+)
+CONSTRUCTION_BBS_ID = "B2025022104003"
+ATTACH_PATH_RE = re.compile(r"/file/down/stdboard/([^/]+)/")
 TIMEOUT = 3.0
 
 CATEGORY = {
@@ -345,3 +355,10 @@ async def fetch_case_attachment(boardno: str) -> str:
 def cases_for_code(risk_code: str) -> list[dict]:
     """위험코드에 해당하는 중대재해 사례 (캐시)."""
     return _CACHE.get("cases", {}).get(risk_code, [])
+
+
+def case_page_url(post_no: str, attachment_url: str = "") -> str:
+    """재해사례 게시글 웹페이지 URL. 첨부 URL 에서 bbsId 를 뽑아 조립한다."""
+    m = ATTACH_PATH_RE.search(attachment_url or "")
+    bbs_id = m.group(1) if m else CONSTRUCTION_BBS_ID
+    return CASE_PAGE_URL.format(bbs_id=bbs_id, post_no=post_no)

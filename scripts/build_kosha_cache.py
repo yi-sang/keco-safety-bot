@@ -92,7 +92,8 @@ async def main() -> None:
                 "title": c["keyword"],
                 "date": f"{y}.{m:02d}",
                 "summary": " ".join(c.get("contents", "").split()),
-                "url": url,
+                "url": kosha.case_page_url(c["boardno"], url),  # 게시글 웹페이지
+                "pdf_url": url,                                  # 첨부 PDF 직링크
             })
             print(f"   📌 사례 {y}.{m:02d}  {c['keyword'][:44]}  {'PDF✓' if url else 'PDF✗'}")
         if entries:
