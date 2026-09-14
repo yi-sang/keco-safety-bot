@@ -78,24 +78,82 @@
   },
   "media": {
     "FALL_RISK": {
-      "title": "건설현장 추락사고 예방 좋은예 나쁜예",
-      "url": "https://portal.kosha.or.kr/archive/cent-archive/master-arch/master-list1/master-detail1?medSeq=42054"
+      "title": "달비계 작업 3대 핵심 안전수칙",
+      "url": "https://portal.kosha.or.kr/archive/cent-archive/master-arch/master-list1/master-detail1?medSeq=52562"
     },
     "PPE_HELMET_MISSING": {
-      "title": "안전한 보호구 착용 길잡이(안전모) OPS",
-      "url": "https://portal.kosha.or.kr/archive/cent-archive/master-arch/master-list1/master-detail1?medSeq=43631"
+      "title": "생명을 살리는 안전모",
+      "url": "https://portal.kosha.or.kr/archive/cent-archive/master-arch/master-list4/master-detail4?medSeq=45250"
     },
     "OPENING_UNPROTECTED": {
-      "title": "[중대재해사례]개구부 덮개를 치우던 중 개구부로 추락",
-      "url": "https://portal.kosha.or.kr/archive/cent-archive/master-arch/master-list1/master-detail1?medSeq=31159"
+      "title": "[중대재해] 주택 지붕 단부 빗물 방지턱 미장작업 중 떨어짐",
+      "url": "https://portal.kosha.or.kr/archive/cent-archive/master-arch/master-list1/master-detail1?medSeq=52008"
     },
     "ELECTRIC_RISK": {
-      "title": "[안전기준] 전기작업에 대한 위험방지",
-      "url": "https://portal.kosha.or.kr/archive/cent-archive/master-arch/master-list1/master-detail1?medSeq=46846"
+      "title": "(SIF 교안) 전기설비 작업",
+      "url": "https://portal.kosha.or.kr/archive/cent-archive/master-arch/master-list4/master-detail4?medSeq=52499"
     },
     "LOAD_UNSTABLE": {
-      "title": "화물 적재 안전작업 가이드 2종",
-      "url": "https://portal.kosha.or.kr/archive/cent-archive/master-arch/master-list1/master-detail1?medSeq=44495"
+      "title": "[중대재해] 굴삭기로 인양하던 H빔이 떨어져 맞음",
+      "url": "https://portal.kosha.or.kr/archive/cent-archive/master-arch/master-list1/master-detail1?medSeq=52001"
     }
+  },
+  "cases": {
+    "FALL_RISK": [
+      {
+        "title": "와이어 피더 인양 작업 중 추락",
+        "date": "2026.05",
+        "summary": "2026. 05. 22. (금) 15:13 경 인천시 소재 제조사업장 내 기계설비 설치·보수현장에서모래 건조설비 상부에 기조립된 안전난간 기둥을 고정하기 위해,용접기 송급장치(와이어 피더, wire feeder)를 인양하던 중재해자가 중심을 잃고 안전난간을 밀며 약 5m 아래 바닥으로 추락",
+        "url": "https://portal.kosha.or.kr/openapi/v1/file/down/stdboard/B2025022104003/20260903134913NKCRMG/D0801000010001"
+      },
+      {
+        "title": "지붕재 해체 중 채광창 밟고 추락",
+        "date": "2026.03",
+        "summary": "2026. 03. 00.(금) 00:00경 전라남도 장성군 소재 ㈜ ○○○○○ 소속 근로자가 여객홈지붕 시설개량공사 건설현장에서 승강장 지붕재 해체 작업 중 채광창 상부를 건너가는 과정에서 채광창을 밟아 지상 콘크리트 바닥(H≒4.4m)으로 추락함.",
+        "url": "https://portal.kosha.or.kr/openapi/v1/file/down/stdboard/B2025022104003/20260903135046A13IDI/D0801000010001"
+      }
+    ],
+    "OPENING_UNPROTECTED": [
+      {
+        "title": "개구부 상부 작업 중 떨어짐",
+        "date": "2025.11",
+        "summary": "2025. 11. OO.(일) 07:20경 광주광역시 동구 소재 OOOO에서 옥상층 E/V실 벽체 철근 조립 작업을 위해 작업발판용 각재 설치하던 중 높이 약 12m 아래 E/V PIT층 바닥으로 떨어짐",
+        "url": "https://portal.kosha.or.kr/openapi/v1/file/down/stdboard/B2025022104003/20260413151916R3DNVG/D0801000010001"
+      },
+      {
+        "title": "이동 중 개구부에서 떨어짐",
+        "date": "2024.09",
+        "summary": "2024.09.00(수) 13:10경 부산시 강서구 소재OOO신축 공사현장에서 재해자가 지상 3층에 환기 배관을 설치하기 위해줄자를 사용하여 벽면의 길이를 측정하며 이동중 벽면에 인접해 있는 지상 3층 바닥 개구부에서 약 8.7m 아래 지상 1층 콘크리트 바닥으로 떨어짐",
+        "url": "https://portal.kosha.or.kr/openapi/v1/file/down/stdboard/B2025022104003/20250124110455CFFF6X/D0801000010001"
+      }
+    ],
+    "ELECTRIC_RISK": [
+      {
+        "title": "접지용구 설치작업 중 감전",
+        "date": "2026.01",
+        "summary": "2026. 1. OO.(목) 11:08경 전북 전주시 완산구 소재 ㈜OOOO에서 활선작업용 고소작업대에 탑승하여 전로가 차단되지 않은 활선상태인 특고압선에 접지용구를 설치하려고 배전선의 피복을 제거하려고 하던 중 감전됨",
+        "url": "https://portal.kosha.or.kr/openapi/v1/file/down/stdboard/B2025022104003/20260413162017EK5XMP/D0801000010001"
+      },
+      {
+        "title": "수변전 설비 철거 작업 중 감전",
+        "date": "2025.11",
+        "summary": "2025. 11. 00.(수) 09:25경 전라북도 전주시 소재 OOOO에서 임시 수변전 설비(H변대) 철거를 위한 준비 작업 중, 전주 상부로 승강하여 작업 중 감전되어 지상 바닥(H≒10m)으로 떨어짐",
+        "url": "https://portal.kosha.or.kr/openapi/v1/file/down/stdboard/B2025022104003/20260413151653FSDTG9/D0801000010001"
+      }
+    ],
+    "LOAD_UNSTABLE": [
+      {
+        "title": "창호 설치 작업 중 낙하하는 석재에 맞음",
+        "date": "2026.05",
+        "summary": "2026. 5. 11. (월) 14:30 경 인천시 소재 근린생활시설 건설현장에서 출입구 캐노피 위에서 계단실의 창호를 설치하던 중, 옥탑층 계단실 외부 측면에 설치한 외벽 마감용 석재(15kg)가 낙하(h=9m)하여 맞음",
+        "url": "https://portal.kosha.or.kr/openapi/v1/file/down/stdboard/B2025022104003/202609031348305IOTLP/D0801000010001"
+      },
+      {
+        "title": "벨트 슬링이 파단되어 인양물에 맞음",
+        "date": "2025.12",
+        "summary": "2025. 12. 00. (화) 00:00 경 경남 함안군 소재 0000 공장 내 작업장에서천장크레인으로 작업 발판을 인양하던 중 작업 발판과 연결된 벨트 슬링*이 끊어지며 하부에서 유도줄을 잡고 있던 재해자가 떨어지는 작업 발판에 맞음.",
+        "url": "https://portal.kosha.or.kr/openapi/v1/file/down/stdboard/B2025022104003/20260629202839ZZKR57/D0801000010001"
+      }
+    ]
   }
 }

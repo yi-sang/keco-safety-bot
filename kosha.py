@@ -25,6 +25,14 @@ load_dotenv()
 
 API_KEY = os.getenv("KOSHA_API_KEY")
 SMART_SEARCH_URL = "https://apis.data.go.kr/B552468/srch/smartSearch"
+# 안전보건자료 링크 서비스 (15139398). ctgr02=3 이 건설업이라 업종을 좁힐 수 있다.
+# 스마트검색 category=6 은 전 업종 키워드 검색이라 조선업·서비스업 자료가 섞였다.
+MEDIA_LIST_URL = "https://apis.data.go.kr/B552468/selectMediaList01/getselectMediaList01"
+# 국내재해사례 게시판 (15121001) — 필터 파라미터가 동작하지 않아 전량 받아 직접 분류한다.
+CASE_LIST_URL = "https://apis.data.go.kr/B552468/disaster_api02/getdisaster_api02"
+# 재해사례 첨부파일 (15121008) — boardno 로 PDF 다운로드 URL 을 얻는다.
+CASE_ATTACH_URL = "https://apis.data.go.kr/B552468/disaster_attach_api02/Disaster_attach_api02"
+CONSTRUCTION_SECTOR = "3"
 TIMEOUT = 3.0
 
 CATEGORY = {
@@ -222,3 +230,118 @@ def format_citation(law: dict, max_len: int = 200) -> str:
     if len(body) > max_len:
         body = body[:max_len].rstrip() + "…"
     return f"📜 {law['source']} {law['title']}\n   “{body}”"
+
+
+# ── 건설업 자료 · 재해사례 (전량 수집 후 위험코드로 분류) ──────────
+#
+# 두 API 모두 위험코드로 조회할 방법이 없다. 자료는 업종까지만 좁혀지고,
+# 재해사례는 검색 파라미터가 아예 무시된다. 그래서 전량을 받아 제목과
+# keyword 필드를 정규식으로 분류한다. 규칙은 위에서 아래로 검사하며
+# 먼저 걸리는 코드가 이긴다 (개구부 추락을 FALL_RISK 가 아닌
+# OPENING_UNPROTECTED 로 보내기 위한 순서다).
+MEDIA_RULES = [
+    ("PPE_HELMET_MISSING", r"안전모"),
+    ("OPENING_UNPROTECTED", r"개구부|덮개|단부"),
+    ("ELECTRIC_RISK", r"감전|전기"),
+    ("LOAD_UNSTABLE", r"낙하|적재|인양"),
+    ("FALL_RISK", r"추락|떨어짐|비계|안전대"),
+]
+
+# 재해사례의 keyword 는 재해유형("지붕교체공사 중 떨어짐")이라 원인은 담기지 않는다.
+# 안전모 미착용은 유형이 아니라 원인이어서 매칭이 불가능하므로 PPE 는 규칙이 없다.
+CASE_RULES = [
+    ("OPENING_UNPROTECTED", r"개구부|덮개"),
+    ("ELECTRIC_RISK", r"감전|충전부|누전|활선"),
+    ("LOAD_UNSTABLE", r"낙하|맞음|깔림|인양물"),
+    ("FALL_RISK", r"추락|떨어짐"),
+]
+
+# 외국어판은 한국어 사용자에게 쓸모가 없어 제외한다.
+FOREIGN_RE = re.compile(
+    r"중국어|태국어|영어|베트남|캄보디아|네팔|미얀마|우즈벡|몽골|러시아"
+    r"|외국어|다국어|\d+개\s*국어"
+)
+# 행정 공지(지원사업 안내·공모 등)는 최신순 정렬에서 상위를 차지하지만
+# 현장 안전자료가 아니라 제외한다.
+ADMIN_RE = re.compile(
+    r"사업안내|과업설명서|공모|모집|위탁|계획서|공고|비용 지원|지원 가이드|임대|지원사업"
+)
+# 실무 자료를 최신순보다 우선한다.
+MEDIA_PREFER_RE = re.compile(r"중대재해|재해예방|안전수칙|길잡이|교안|재해사례|위험요인")
+# 재해개요의 발생일자. 일자가 "2025. 11. OO." 처럼 마스킹된 사례가 많아
+# 연·월만 읽는다. 일자까지 욕심내면 정규식이 백트래킹해 월을 잘못 집는다.
+CASE_DATE_RE = re.compile(r"(20\d\d)\s*[.\-년]\s*(\d{1,2})\s*[.\-월]")
+CASE_MIN_YEAR = 2018  # 그보다 오래된 사례는 현장 관행이 달라 제외
+
+
+def classify(text: str, rules: list[tuple[str, str]]) -> str | None:
+    for code, pattern in rules:
+        if re.search(pattern, text):
+            return code
+    return None
+
+
+def case_date(case: dict) -> tuple[int, int]:
+    """재해 발생 연·월. 못 찾으면 (0, 0) 이라 정렬에서 뒤로 밀린다."""
+    m = CASE_DATE_RE.search(case.get("contents", "") or "")
+    if not m:
+        return (0, 0)
+    year, month = int(m.group(1)), int(m.group(2))
+    return (year, month) if 1 <= month <= 12 else (year, 0)
+
+
+async def _fetch_all(url: str, params: dict, page_size: int, json_flag: str) -> list[dict]:
+    """공공데이터포털 목록 API 를 끝까지 페이징한다."""
+    out: list[dict] = []
+    page = 1
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        while True:
+            resp = await client.get(url, params={
+                **params, "serviceKey": API_KEY, "pageNo": page,
+                "numOfRows": page_size, json_flag: "json",
+            })
+            resp.raise_for_status()
+            body = resp.json()["body"]
+            items = (body.get("items") or {}).get("item") or []
+            if not items:
+                break
+            out += items
+            if len(out) >= int(body.get("totalCount", 0)):
+                break
+            page += 1
+    return out
+
+
+async def fetch_construction_media() -> list[dict]:
+    """건설업 안전보건자료 전량."""
+    return await _fetch_all(
+        MEDIA_LIST_URL,
+        {"ctgr02": CONSTRUCTION_SECTOR, "callApiId": "1030"},
+        2000, "_type",
+    )
+
+
+async def fetch_construction_cases() -> list[dict]:
+    """국내재해사례 중 건설업이면서 첨부파일이 있는 것만."""
+    rows = await _fetch_all(CASE_LIST_URL, {"callApiId": "1060"}, 1000, "type")
+    return [c for c in rows if c.get("business") == "건설업" and c.get("atcflcnt")]
+
+
+async def fetch_case_attachment(boardno: str) -> str:
+    """재해사례 boardno → 첨부 PDF 다운로드 URL. 없으면 빈 문자열."""
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT * 3) as client:
+            resp = await client.get(CASE_ATTACH_URL, params={
+                "serviceKey": API_KEY, "pageNo": 1, "numOfRows": 1,
+                "boardno": boardno, "callApiId": "1070", "_type": "json",
+            })
+            resp.raise_for_status()
+            items = (resp.json()["body"].get("items") or {}).get("item") or []
+            return items[0].get("filepath", "") if items else ""
+    except Exception:
+        return ""
+
+
+def cases_for_code(risk_code: str) -> list[dict]:
+    """위험코드에 해당하는 중대재해 사례 (캐시)."""
+    return _CACHE.get("cases", {}).get(risk_code, [])

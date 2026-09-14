@@ -66,6 +66,8 @@ MAX_BUTTONS_HORIZONTAL = 2
 MAX_LIST_ITEMS = 5
 LIST_ITEM_TITLE_LIMIT = 36
 LIST_ITEM_DESC_LIMIT = 76
+# outputs 는 말풍선 3개가 한계: 본문 + 자료 + 사례로 꽉 찬다.
+MAX_OUTPUTS = 3
 
 
 def make_text_card(title: str, description: str, buttons: list[dict] | None = None,
@@ -122,31 +124,53 @@ def make_list_card(header: str, items: list[dict]) -> dict:
     }
 
 
+def _case_items(risk_codes: list[str]) -> list[dict]:
+    """상위 위험코드 순으로 사례를 모은다. 코드당 편중되지 않게 한 바퀴씩 돈다."""
+    per_code = [kosha.cases_for_code(c) for c in risk_codes]
+    items, depth = [], 0
+    while len(items) < MAX_LIST_ITEMS and any(len(cs) > depth for cs in per_code):
+        for cs in per_code:
+            if depth < len(cs) and len(items) < MAX_LIST_ITEMS:
+                c = cs[depth]
+                items.append({
+                    "title": f"{c['title']} ({c['date']})",
+                    "description": c.get("summary", ""),
+                    "url": c.get("url", ""),
+                })
+        depth += 1
+    return items
+
+
 def make_analysis_response(text: str, risk_codes: list[str]) -> dict:
-    """사진분석 응답: 본문은 simpleText, KOSHA 자료 링크는 listCard 로 덧붙인다.
+    """사진분석 응답: 본문(simpleText) + KOSHA 자료 + 유사 중대재해 사례.
 
     감지된 위험요소 하나당 자료 한 건을 항목으로 넣어, 어느 위험에 대한
-    자료인지 알 수 있게 한다. 자료를 하나도 못 찾으면 textCard 없이
-    기존과 동일한 simpleText 단독 응답이 나간다.
+    자료인지 알 수 있게 한다. 사례는 위험코드 순으로 한 바퀴씩 돌며 모아
+    특정 코드가 목록을 독식하지 않게 한다.
 
     본문이 1000자까지 필요한데 카드류는 그만큼 담지 못하고, outputs 는
-    말풍선 3개가 한계라 카드를 여러 개 붙일 수도 없다. 그래서 링크는
-    항목 5개까지 들어가는 listCard 하나로 모은다.
+    말풍선 3개가 한계다. 그래서 본문 1 + 자료 1 + 사례 1 로 꽉 채운다.
+    자료도 사례도 못 찾으면 기존과 같은 simpleText 단독 응답이 나간다.
     """
-    items = []
-    for code in dict.fromkeys(risk_codes):  # 중복 코드 제거, 순서 유지
+    codes = list(dict.fromkeys(risk_codes))  # 중복 제거, 순서 유지
+
+    media_items = []
+    for code in codes:
         media = kosha.media_for_code(code)
         if media:
-            items.append({
+            media_items.append({
                 "title": kosha.RISK_CODE_KR.get(code, code),
                 "description": media["title"],
                 "url": media["url"],
             })
 
-    if not items:
-        return make_simple_text(text)
+    bubbles = [make_simple_text_output(text)]
+    if media_items:
+        bubbles.append(make_list_card("📎 KOSHA 안전보건자료", media_items))
+    case_items = [c for c in _case_items(codes) if c["url"]]
+    if case_items:
+        bubbles.append(make_list_card("📌 유사 중대재해 사례", case_items))
 
-    return make_outputs(
-        make_simple_text_output(text),
-        make_list_card("📎 KOSHA 안전보건자료", items),
-    )
+    if len(bubbles) == 1:
+        return make_simple_text(text)
+    return make_outputs(*bubbles)
