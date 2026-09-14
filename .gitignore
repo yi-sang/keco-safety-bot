@@ -7,3 +7,5 @@ __pycache__/
 *.jpeg
 *.png
 markdown.md
+.venv/
+.DS_Store

@@ -7,6 +7,8 @@ from google import genai
 from google.genai import types
 from dotenv import load_dotenv
 
+import kosha
+
 load_dotenv()
 
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
@@ -30,11 +32,12 @@ PROMPT = """[IMPORTANT] Respond in JSON only.
 2. 위 위험코드 중 해당하는 것을 분류하세요. (확실하지 않으면 confidence 낮게)
 3. 각 위험요소에 대해 아래를 모두 작성하세요:
    - 위험도(상/중/하)
-   - 위험 판단 근거 (KOSHA 기준 또는 산안법 조항 명시)
+   - 위험 판단 근거 (사진에서 관찰된 사실 기준)
    - 즉시 조치사항 (구체적으로 2~3가지)
-   - 관련 법령/기준 (예: 산안법 제38조, KOSHA GUIDE C-31)
 4. 종합 위험도 평가를 작성하세요.
-5. 반드시 아래 JSON 형식으로만 응답하세요.
+5. 법령 조문(제○조)이나 KOSHA GUIDE 번호를 직접 쓰지 마세요.
+   관련 법령은 위험코드에 따라 시스템이 KOSHA 공식 데이터에서 붙입니다.
+6. 반드시 아래 JSON 형식으로만 응답하세요.
 
 {
   "scene_summary": "현장 상황 요약 (2~3문장)",
@@ -44,8 +47,7 @@ PROMPT = """[IMPORTANT] Respond in JSON only.
       "confidence": 0.0,
       "risk_level": "상/중/하",
       "reason": "위험 판단 근거",
-      "action": "즉시 조치사항",
-      "legal_ref": "관련 법령/KOSHA 기준"
+      "action": "즉시 조치사항"
     }
   ],
   "overall_risk": "종합 위험도 평가 한 문장",
@@ -54,6 +56,11 @@ PROMPT = """[IMPORTANT] Respond in JSON only.
 """
 
 RISK_LEVEL_EMOJI = {"상": "🔴", "중": "🟠", "하": "🟡"}
+
+# 카카오 simpleText 는 1000자 제한. 조문 전문을 그대로 붙이면 넘치므로 예산을 둔다.
+KAKAO_TEXT_LIMIT = 1000
+LAW_PER_HAZARD = 1
+LAW_BODY_LEN = 90
 
 RISK_CODE_KR = {
     "FALL_RISK": "추락 위험",
@@ -100,6 +107,7 @@ async def analyze_image(image_url: str) -> str:
 def _format_result(result: dict) -> str:
     """Gemini 분석 결과를 카카오 응답 텍스트로 포맷"""
     lines = ["📋 현장 위험요소 분석 결과\n"]
+    cited = False
 
     summary = result.get("scene_summary", "")
     if summary:
@@ -117,8 +125,10 @@ def _format_result(result: dict) -> str:
             lines.append(f"{i}. {emoji} {name} [{level}위험]")
             lines.append(f"   📌 근거: {h.get('reason', '')}")
             lines.append(f"   🔧 조치: {h.get('action', '')}")
-            if h.get("legal_ref"):
-                lines.append(f"   📜 기준: {h.get('legal_ref', '')}")
+            for law in kosha.laws_for_code(code)[:LAW_PER_HAZARD]:
+                lines.append(f"   📜 {law['source']} {law['title']}")
+                lines.append(f"      “{_clip(law['content'], LAW_BODY_LEN)}”")
+                cited = True
             lines.append("")
 
     overall = result.get("overall_risk", "")
@@ -130,7 +140,30 @@ def _format_result(result: dict) -> str:
         lines.append(f"※ 불확실 사항: {uncertainty}")
 
     lines.append("※ 현장 점검으로 최종 확인 필요")
-    return "\n".join(lines)
+    if cited:
+        lines.append("📡 법령 출처: KOSHA 안전보건공단 안전보건법령 스마트검색")
+    return _fit(lines)
+
+
+def _clip(text: str, limit: int) -> str:
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[:limit].rstrip() + "…"
+
+
+def _fit(lines: list[str]) -> str:
+    """카카오 1000자 제한에 맞춘다. 넘치면 조문 인용부터 덜어낸다."""
+    text = "\n".join(lines)
+    if len(text) <= KAKAO_TEXT_LIMIT:
+        return text
+
+    trimmed = [ln for ln in lines if not ln.startswith("      “")]
+    text = "\n".join(trimmed)
+    if len(text) <= KAKAO_TEXT_LIMIT:
+        return text
+
+    trimmed = [ln for ln in trimmed if not ln.startswith("   📜 ")]
+    text = "\n".join(trimmed)
+    return text if len(text) <= KAKAO_TEXT_LIMIT else text[:KAKAO_TEXT_LIMIT - 1] + "…"
 
 
 SAFETY_QA_PROMPT = """당신은 건설/공사현장 안전 전문가입니다. KOSHA(안전보건공단) 가이드와 산업안전보건법을 기반으로 답변하세요.
