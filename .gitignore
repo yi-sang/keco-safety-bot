@@ -9,3 +9,4 @@ __pycache__/
 markdown.md
 .venv/
 .DS_Store
+.vercel
