@@ -13,6 +13,7 @@
   '산업안전보건기준에 관한 규칙'(category 4)을 우선하도록 재정렬한다.
 """
 
+import asyncio
 import json
 import os
 import pathlib
@@ -367,3 +368,84 @@ def case_page_url(post_no: str, attachment_url: str = "") -> str:
     m = ATTACH_PATH_RE.search(attachment_url or "")
     bbs_id = m.group(1) if m else CONSTRUCTION_BBS_ID
     return CASE_PAGE_URL.format(bbs_id=bbs_id, post_no=post_no)
+
+
+# ── 질의 기반 근거 조회 (현장안전질문 · 현장안전체크) ──────────────
+#
+# 사진분석의 위험코드와 달리 질문·작업유형은 미리 알 수 없어 캐시할 수 없다.
+# 그래서 Gemini 가 뽑은 검색 키워드로 런타임에 조회한다. 모델이 조문 번호나
+# 지침 번호를 기억에서 지어내는 것을 막고(예: KOSHA GUIDE C-32 를
+# '추락재해방지 표준작업지침'으로 잘못 인용), 실제 조회된 근거만 붙이기 위한 것이다.
+#
+# [중요] 스마트검색은 KOSHA GUIDE 의 번호(C-32 등)를 주지 않는다. title 은
+# "시스템 비계 안전작업 지침 - 용어의 정의" 형태의 지침명+절 뿐이다.
+# 번호를 검증할 방법이 없으므로 지침은 번호 없이 지침명으로만 인용한다.
+GUIDE_SECTION_SEP = " - "
+MAX_REF_QUERIES = 3          # 키워드가 많아도 3개까지만 (응답 지연 억제)
+ARTICLE_RE = re.compile(r"제\s?\d+조(?:의\s?\d+)?")
+
+
+def guide_name(title: str) -> str:
+    """지침 제목에서 절 이름을 떼어낸 지침명."""
+    return title.split(GUIDE_SECTION_SEP)[0].strip()
+
+
+async def find_guides(query: str, limit: int = 2) -> list[dict]:
+    """KOSHA GUIDE 기술지침. 같은 지침의 여러 절이 올라오므로 지침명으로 묶는다."""
+    hits = await search(query, category=GUIDE_CATEGORY, rows=10)
+    out: list[dict] = []
+    seen: set[str] = set()
+    for h in hits:
+        name = guide_name(h["title"])
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        out.append({**h, "title": name, "source": "KOSHA GUIDE", "kind": "guide"})
+        if len(out) >= limit:
+            break
+    return out
+
+
+async def gather_references(keywords: list[str], law_limit: int = 6,
+                            guide_limit: int = 3) -> list[dict]:
+    """검색 키워드로 법령 조문과 KOSHA GUIDE 후보를 모은다.
+
+    키워드별로 한 바퀴씩 돌며 채워 첫 키워드가 목록을 독식하지 않게 한다.
+    API 가 죽어도 빈 리스트만 돌려주고 챗봇 응답은 막지 않는다 (근거 없이 나간다).
+    """
+    queries = [k.strip() for k in keywords if k and k.strip()][:MAX_REF_QUERIES]
+    if not queries or not API_KEY:
+        return []
+
+    results = await asyncio.gather(
+        *[find_laws(q, limit=2) for q in queries],
+        *[find_guides(q, limit=2) for q in queries],
+        return_exceptions=True,
+    )
+    n = len(queries)
+    law_sets = [r if isinstance(r, list) else [] for r in results[:n]]
+    guide_sets = [r if isinstance(r, list) else [] for r in results[n:]]
+
+    def round_robin(sets: list[list[dict]], limit: int) -> list[dict]:
+        out: list[dict] = []
+        seen: set[str] = set()
+        for depth in range(max((len(s) for s in sets), default=0)):
+            for s in sets:
+                if depth < len(s) and len(out) < limit:
+                    item = s[depth]
+                    if item["title"] not in seen:
+                        seen.add(item["title"])
+                        out.append(item)
+        return out
+
+    laws = [{**law, "kind": "law"} for law in round_robin(law_sets, law_limit)]
+    return laws + round_robin(guide_sets, guide_limit)
+
+
+def cited_articles(refs: list[dict]) -> set[str]:
+    """조회된 근거에 실제로 등장하는 조문 번호 집합. 모델 문장 검증에 쓴다."""
+    return {
+        m.group(0).replace(" ", "")
+        for ref in refs
+        for m in ARTICLE_RE.finditer(ref.get("title", ""))
+    }
