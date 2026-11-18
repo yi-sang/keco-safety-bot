@@ -43,7 +43,9 @@ CASE_PAGE_URL = (
 )
 CONSTRUCTION_BBS_ID = "B2025022104003"
 ATTACH_PATH_RE = re.compile(r"/file/down/stdboard/([^/]+)/")
-TIMEOUT = 3.0
+# 3초로는 콜드스타트에서 조회가 통째로 날아가 근거 없이 답변이 나갔다.
+# 카카오 콜백 방식이라 수십 초 여유가 있으므로 넉넉히 둔다.
+TIMEOUT = 8.0
 
 CATEGORY = {
     "1": "산업안전보건법",
@@ -132,7 +134,9 @@ async def search(query: str, category: int = 0, rows: int = 20) -> list[dict]:
             resp = await client.get(SMART_SEARCH_URL, params=params)
             resp.raise_for_status()
             body = resp.json()["response"]["body"]
-    except Exception:
+    except Exception as e:
+        # 조용히 삼키면 근거 없는 답변의 원인을 알 수 없다.
+        print(f"[KOSHA] 검색 실패 (query={query!r}, category={category}): {e}")
         return []
 
     items = body.get("items")
