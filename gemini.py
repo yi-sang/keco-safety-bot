@@ -1,5 +1,6 @@
 import os
 import io
+import re
 import httpx
 import json
 from PIL import Image
@@ -100,13 +101,7 @@ async def analyze_image(image_url: str) -> tuple[str, list[str]]:
         contents=[PROMPT, image_part]
     )
 
-    # JSON 파싱
-    raw_text = response.text.strip()
-    if raw_text.startswith("```"):
-        raw_text = raw_text.split("```")[1]
-        if raw_text.startswith("json"):
-            raw_text = raw_text[4:]
-    result = json.loads(raw_text.strip())
+    result = _parse_json(response.text)
 
     codes = [h.get("code", "") for h in _sort_hazards(result.get("hazards", []))]
     return _format_result(result), codes
@@ -179,52 +174,276 @@ def _clip(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[:limit].rstrip() + "…"
 
 
-def _fit(lines: list[str]) -> str:
+# 1000자를 넘길 때 버리는 줄의 접두사 — 앞에서부터 차례로 덜어낸다.
+# 인용문(본문) → 조문 제목 순으로, 정보 손실이 적은 쪽부터 버린다.
+DROPPABLE_PREFIXES = ("      “", "   “", "   📜 ", "   └ ", "• ")
+
+
+def _fit(lines: list[str], droppable: tuple[str, ...] = DROPPABLE_PREFIXES) -> str:
     """카카오 1000자 제한에 맞춘다. 넘치면 조문 인용부터 덜어낸다."""
     text = "\n".join(lines)
     if len(text) <= KAKAO_TEXT_LIMIT:
         return text
 
-    trimmed = [ln for ln in lines if not ln.startswith("      “")]
-    text = "\n".join(trimmed)
-    if len(text) <= KAKAO_TEXT_LIMIT:
-        return text
+    for prefix in droppable:
+        lines = [ln for ln in lines if not ln.startswith(prefix)]
+        text = "\n".join(lines)
+        if len(text) <= KAKAO_TEXT_LIMIT:
+            return text
 
-    trimmed = [ln for ln in trimmed if not ln.startswith("   📜 ")]
-    text = "\n".join(trimmed)
-    return text if len(text) <= KAKAO_TEXT_LIMIT else text[:KAKAO_TEXT_LIMIT - 1] + "…"
+    return text[:KAKAO_TEXT_LIMIT - 1] + "…"
 
 
-SAFETY_QA_PROMPT = """당신은 건설/공사현장 안전 전문가입니다. KOSHA(안전보건공단) 가이드와 산업안전보건법을 기반으로 답변하세요.
+# ── 모델이 지어낸 인용 차단 ────────────────────────────────
+#
+# 질문·체크리스트는 사진분석과 달리 위험코드가 없어 캐시된 조문을 붙일 수 없다.
+# 예전에는 프롬프트가 모델에게 직접 "KOSHA GUIDE 번호"를 쓰게 했는데, 번호는
+# 모델 기억에서 나오므로 실제 지침과 어긋났다(C-32 는 '추락재해방지 표준작업지침'이
+# 아니라 '시스템 비계 안전작업 지침'이다). 또 스마트검색 API 는 지침 번호를
+# 제공하지 않아 번호는 검증할 방법 자체가 없다.
+#
+# 그래서 (1) 모델은 번호를 쓰지 못하게 하고, (2) 근거는 KOSHA 검색으로 실제
+# 조회된 것만 코드가 붙이며, (3) 그래도 새어 나온 번호는 아래에서 지운다.
+# "및 KOSHA GUIDE C-32(추락재해방지 표준작업지침)" 처럼 앞의 연결어미와 뒤의
+# 괄호 부제까지 함께 지운다. 번호만 떼면 "및 (추락재해방지…)" 같은 조각이 남는다.
+GUIDE_NO_RE = re.compile(
+    r"(?:\s*(?:및|와|과|,))?\s*"
+    r"(?:\(?\s*(?:KOSHA\s*GUIDE|코샤\s*가이드)\s*[A-Z]\s*-\s*\d+(?:\s*-\s*\d{2,4})?\s*\)?"
+    r"|\(\s*[A-Z]\s*-\s*\d+(?:\s*-\s*\d{2,4})?\s*\))"
+    r"(?:\s*\([^)]{0,40}\))?",
+    re.I,
+)
+UNVERIFIED_ARTICLE = "관련 조항"
+
+# 질문 답변·체크리스트에 붙일 근거 건수. 말풍선 1000자 안에 들어가야 한다.
+QA_LAW_LIMIT = 2
+QA_GUIDE_LIMIT = 1
+QA_BODY_LEN = 80
+CHECK_LAW_LIMIT = 2
+CHECK_GUIDE_LIMIT = 1
+# 체크리스트 항목별 근거는 조회된 후보 중에서만 고르게 한다.
+CHECK_CANDIDATE_LAWS = 6
+CHECK_CANDIDATE_GUIDES = 3
+
+OFF_TOPIC_REPLY = "현장 안전 관련 질문만 답변드릴 수 있습니다."
+SOURCE_NOTE = "📡 근거 출처: KOSHA 안전보건공단 안전보건법령 스마트검색"
+
+
+def _parse_json(raw: str) -> dict:
+    """Gemini 응답에서 JSON 추출. 마크다운 코드블록으로 감싸도 처리한다."""
+    text = raw.strip()
+    if text.startswith("```"):
+        text = text.split("```")[1]
+        if text.startswith("json"):
+            text = text[4:]
+    return json.loads(text.strip())
+
+
+def _scrub(text: str, allowed: set[str]) -> str:
+    """조회로 확인되지 않은 조문 번호·지침 번호를 문장에서 제거한다."""
+    text = GUIDE_NO_RE.sub("", text or "")
+
+    def keep_or_blur(m: re.Match) -> str:
+        return m.group(0) if m.group(0).replace(" ", "") in allowed else UNVERIFIED_ARTICLE
+
+    return " ".join(kosha.ARTICLE_RE.sub(keep_or_blur, text).split())
+
+
+def _ref_label(ref: dict) -> str:
+    """근거 한 줄. KOSHA GUIDE 는 번호 없이 지침명으로만 쓴다."""
+    return f"{ref['source']} {ref['title']}".strip()
+
+
+# ── 현장 안전 질문 ──────────────────────────────────────────
+
+SAFETY_QA_PROMPT = """[IMPORTANT] Respond in JSON only.
+
+당신은 건설/공사현장 안전 전문가입니다. KOSHA(안전보건공단) 가이드와 산업안전보건법을 기반으로 답변하세요.
 
 질문: {question}
 
 [답변 규칙]
-1. 답변은 아래 구조로 작성하세요:
-   - 핵심 답변 (2~3문장)
-   - 관련 법령/기준 (산안법 조항 또는 KOSHA GUIDE 번호)
-   - 현장 적용 방법 (즉시 실행 가능한 2~3가지)
-2. 카카오톡 말풍선 기준 800자 이내로 작성하세요.
-3. 공사현장과 무관한 질문은 "현장 안전 관련 질문만 답변드릴 수 있습니다."라고만 답변하세요.
+1. 법령 조문 번호(제○조)나 KOSHA GUIDE 번호(C-○○ 등)를 절대 쓰지 마세요.
+   기억에 의존한 번호는 실제 조문·지침과 어긋납니다.
+   관련 근거는 시스템이 KOSHA 공식 검색 결과로 붙입니다.
+2. answer 는 질문에 대한 핵심 답변 2~3문장, 합계 250자 이내.
+3. actions 는 현장에서 즉시 실행 가능한 조치 2~3가지, 각 60자 이내.
+4. search_keywords 는 KOSHA 법령·지침 검색어 1~3개. 검색은 조문 제목·본문을
+   그대로 매칭하므로, 법령 조문 제목에 가까운 짧은 구로 쓸수록 정확히 걸립니다.
+   - 좋음: "안전난간의 구조", "추락의 방지", "개구부 방호", "충전전로", "고소작업대"
+   - 나쁨: "안전난간"처럼 너무 뭉뚱그린 말, "안전"·"작업" 같은 일반어, 문장·조사
+5. 공사현장 안전과 무관한 질문이면 off_topic 을 true 로 하고 나머지는 비우세요.
+
+{{
+  "answer": "핵심 답변",
+  "actions": ["조치1", "조치2"],
+  "search_keywords": ["키워드1", "키워드2"],
+  "off_topic": false
+}}
 """
 
-SAFETY_CHECK_PROMPT = """당신은 건설/공사현장 안전 전문가입니다. KOSHA(안전보건공단) 가이드와 산업안전보건법을 기반으로 작성하세요.
+REF_PICK_PROMPT = """[IMPORTANT] Respond in JSON only.
+
+아래 [후보]는 KOSHA 공식 검색으로 실제 조회된 법령 조문과 기술지침입니다.
+주제에 직접 해당하는 것만 고르세요. 애매하거나 맞는 것이 없으면 빈 배열로 두세요.
+후보에 없는 조문·지침을 새로 만들어 쓰지 마세요.
+
+주제: {topic}
+
+[후보]
+{candidates}
+
+{{"law_ids": [법령 번호 최대 {law_limit}개], "guide_ids": [지침 번호 최대 {guide_limit}개]}}
+"""
+
+# 체크리스트 항목별 근거는 모델에게 맡기지 않는다. 숫자 매핑을 요청하면
+# 딕셔너리든 리스트든 이 필드를 비워 보냈다. 조문 제목의 핵심어가 항목 문장에
+# 실제로 들어 있을 때만 코드가 붙인다 — 결정적이고 지어낼 여지가 없다.
+# 조문 제목에 흔해서 변별력이 없는 말은 매칭에서 뺀다.
+ITEM_MATCH_STOPWORDS = {
+    "설치", "사용", "조치", "작업", "안전", "준수", "기준", "관리", "구조",
+    "방지", "금지", "점검", "조립", "해체", "변경", "지급", "사항", "시의",
+    "등의", "때의", "대한", "관한", "위한",
+}
+ARTICLE_PREFIX_RE = re.compile(r"^제\s?\d+조(?:의\s?\d+)?\s*")
+
+
+def _match_item_refs(items: list[dict], refs: list[dict]) -> dict:
+    """체크 항목 ↔ 조문 매칭. 조문 제목의 핵심어가 항목에 들어 있을 때만 붙인다."""
+    laws = [r for r in refs if r["kind"] == "law"]
+    keyed = []
+    for law in laws:
+        body = ARTICLE_PREFIX_RE.sub("", law["title"])
+        words = {w.strip("의·,ㆍ") for w in body.split()}
+        keyed.append((law, {w for w in words if len(w) >= 2 and w not in ITEM_MATCH_STOPWORDS}))
+
+    matched = {}
+    for i, item in enumerate(items, 1):
+        text = item.get("check", "")
+        best, score = None, 0
+        for law, words in keyed:
+            hits = sum(1 for w in words if w in text)
+            if hits > score:
+                best, score = law, hits
+        if best:
+            matched[i] = best
+    return matched
+
+
+def _candidate_block(refs: list[dict]) -> str:
+    lines = []
+    for i, ref in enumerate(refs, 1):
+        lines.append(f"{i}. [{ref['source']}] {ref['title']} — {_clip(ref['content'], 70)}")
+    return "\n".join(lines)
+
+
+async def _pick_references(topic: str, refs: list[dict], law_limit: int,
+                           guide_limit: int) -> list[dict]:
+    """조회된 후보 중 주제에 맞는 것만 모델이 고르게 한다.
+
+    고르기만 하므로 지어낼 여지가 없고, 돌아온 번호도 범위를 검증한다.
+    선택 호출이 실패하면 검색 점수 순 상위 몇 건으로 조용히 되돌아간다.
+    """
+    fallback = ([r for r in refs if r["kind"] == "law"][:law_limit]
+                + [r for r in refs if r["kind"] == "guide"][:guide_limit])
+    if not refs:
+        return []
+
+    prompt = REF_PICK_PROMPT.format(
+        topic=topic,
+        candidates=_candidate_block(refs),
+        law_limit=law_limit,
+        guide_limit=guide_limit,
+    )
+
+    try:
+        response = await client.aio.models.generate_content(model=MODEL_NAME, contents=[prompt])
+        picked = _parse_json(response.text)
+    except Exception as e:
+        print(f"[REF PICK ERROR] {e}")
+        return fallback
+
+    def by_ids(ids, kind, limit):
+        out = []
+        for raw_id in ids or []:
+            try:
+                ref = refs[int(raw_id) - 1]
+            except (ValueError, TypeError, IndexError):
+                continue
+            if ref["kind"] == kind and ref not in out:
+                out.append(ref)
+        return out[:limit]
+
+    chosen = by_ids(picked.get("law_ids"), "law", law_limit)
+    chosen += by_ids(picked.get("guide_ids"), "guide", guide_limit)
+    return chosen or fallback
+
+
+async def answer_safety_question(question: str) -> str:
+    """안전 관련 텍스트 질문에 Gemini가 답변하고, 근거는 KOSHA 검색으로 붙인다."""
+    response = await client.aio.models.generate_content(
+        model=MODEL_NAME,
+        contents=[SAFETY_QA_PROMPT.format(question=question)],
+    )
+    raw = response.text.strip()
+
+    try:
+        result = _parse_json(raw)
+    except Exception as e:
+        # JSON 이 깨져도 답변 자체는 내보낸다. 단, 검증 안 된 번호는 지운다.
+        print(f"[QA PARSE ERROR] {e}")
+        return _scrub(raw, set())
+
+    if result.get("off_topic"):
+        return OFF_TOPIC_REPLY
+
+    refs = await kosha.gather_references(result.get("search_keywords") or [])
+    chosen = await _pick_references(question, refs, QA_LAW_LIMIT, QA_GUIDE_LIMIT)
+    allowed = kosha.cited_articles(refs)
+
+    lines = [_scrub(result.get("answer", ""), allowed)]
+
+    actions = [a for a in (result.get("actions") or []) if a]
+    if actions:
+        lines.append("\n🔧 현장 적용")
+        for i, action in enumerate(actions, 1):
+            lines.append(f"{i}. {_scrub(action, allowed)}")
+
+    if chosen:
+        lines.append("\n📜 관련 근거")
+        for ref in chosen:
+            lines.append(f"• {_ref_label(ref)}")
+            lines.append(f"   “{_clip(ref['content'], QA_BODY_LEN)}”")
+        lines.append(SOURCE_NOTE)
+
+    return _fit(lines)
+
+
+# ── 현장 안전 체크리스트 ────────────────────────────────────
+
+SAFETY_CHECK_PROMPT = """[IMPORTANT] Respond in JSON only.
+
+당신은 건설/공사현장 안전 전문가입니다. KOSHA(안전보건공단) 가이드와 산업안전보건법을 기반으로 작성하세요.
 
 작업 유형: {work_type}
 
 위 작업을 시작하기 전 반드시 확인해야 할 안전 체크리스트를 작성하세요.
 
 [규칙]
-1. 체크 항목은 8~10개로 작성하세요.
-2. 각 항목은 현장에서 즉시 확인 가능한 구체적인 내용으로 작성하세요.
-3. 가능한 경우 관련 법령/KOSHA 기준을 legal_ref에 명시하세요.
-4. 반드시 아래 JSON 형식으로만 응답하세요.
+1. 체크 항목은 8~10개, 각 항목은 현장에서 즉시 확인 가능한 구체적 내용으로 70자 이내.
+2. 법령 조문 번호(제○조)나 KOSHA GUIDE 번호(C-○○ 등)를 절대 쓰지 마세요.
+   기억에 의존한 번호는 실제 조문·지침과 어긋납니다.
+   적용 기준은 시스템이 KOSHA 공식 검색 결과로 붙입니다.
+3. search_keywords 는 KOSHA 법령·지침 검색어 1~3개. 검색은 조문 제목·본문을
+   그대로 매칭하므로, 법령 조문 제목에 가까운 짧은 구로 쓸수록 정확히 걸립니다.
+   - 좋음: "작업발판의 구조", "고소작업대", "안전대의 부착설비", "충전전로"
+   - 나쁨: 너무 뭉뚱그린 말, "안전"·"작업" 같은 일반어, 문장·조사
 
 {{
   "work_type": "작업명",
-  "legal_basis": "주요 적용 법령/기준 (예: 산안법 제○조, KOSHA GUIDE)",
+  "search_keywords": ["키워드1", "키워드2"],
   "items": [
-    {{"check": "체크 항목 내용", "category": "PPE/환경/장비/절차 중 하나", "legal_ref": "관련 법령 (없으면 빈 문자열)"}}
+    {{"check": "체크 항목 내용", "category": "PPE/환경/장비/절차 중 하나"}}
   ]
 }}
 """
@@ -237,49 +456,45 @@ CATEGORY_EMOJI = {
 }
 
 
-async def answer_safety_question(question: str) -> str:
-    """안전 관련 텍스트 질문에 Gemini가 답변"""
-    prompt = SAFETY_QA_PROMPT.format(question=question)
-    response = await client.aio.models.generate_content(
-        model=MODEL_NAME,
-        contents=[prompt]
-    )
-    return response.text.strip()
-
-
 async def generate_safety_checklist(work_type: str) -> str:
-    """작업 유형에 맞는 안전 체크리스트 생성"""
-    prompt = SAFETY_CHECK_PROMPT.format(work_type=work_type)
+    """작업 유형에 맞는 안전 체크리스트 생성. 적용 기준은 KOSHA 검색으로 붙인다."""
     response = await client.aio.models.generate_content(
         model=MODEL_NAME,
-        contents=[prompt]
+        contents=[SAFETY_CHECK_PROMPT.format(work_type=work_type)],
     )
+    result = _parse_json(response.text)
 
-    raw_text = response.text.strip()
-    if raw_text.startswith("```"):
-        raw_text = raw_text.split("```")[1]
-        if raw_text.startswith("json"):
-            raw_text = raw_text[4:]
+    items = [it for it in (result.get("items") or []) if it.get("check")]
+    refs = await kosha.gather_references(
+        result.get("search_keywords") or [work_type],
+        law_limit=CHECK_CANDIDATE_LAWS,
+        guide_limit=CHECK_CANDIDATE_GUIDES,
+    )
+    chosen = await _pick_references(
+        f"{work_type} 작업 안전 체크리스트", refs, CHECK_LAW_LIMIT, CHECK_GUIDE_LIMIT,
+    )
+    # 항목별 근거는 선택된 조문뿐 아니라 조회된 후보 전체에서 찾는다.
+    return _format_checklist(result, items, chosen, _match_item_refs(items, refs),
+                             kosha.cited_articles(refs))
 
-    result = json.loads(raw_text.strip())
-    return _format_checklist(result)
 
-
-def _format_checklist(result: dict) -> str:
+def _format_checklist(result: dict, items: list[dict], refs: list[dict],
+                      item_refs: dict, allowed: set[str]) -> str:
     work_type = result.get("work_type", "작업")
-    items = result.get("items", [])
-    legal_basis = result.get("legal_basis", "")
 
     lines = [f"✅ {work_type} 작업 전 안전 체크리스트\n"]
 
-    if legal_basis:
-        lines.append(f"📜 적용 기준: {legal_basis}\n")
+    if refs:
+        lines.append("📜 적용 기준: " + " / ".join(_ref_label(r) for r in refs) + "\n")
 
     for i, item in enumerate(items, 1):
         emoji = CATEGORY_EMOJI.get(item.get("category", ""), "▪️")
-        lines.append(f"{i}. {emoji} {item.get('check', '')}")
-        if item.get("legal_ref"):
-            lines.append(f"   └ {item.get('legal_ref', '')}")
+        lines.append(f"{i}. {emoji} {_scrub(item.get('check', ''), allowed)}")
+        ref = item_refs.get(i)
+        if ref:
+            lines.append(f"   └ {_ref_label(ref)}")
 
     lines.append("\n※ 모든 항목 확인 후 작업 시작하세요.")
-    return "\n".join(lines)
+    if refs:
+        lines.append(SOURCE_NOTE)
+    return _fit(lines)
