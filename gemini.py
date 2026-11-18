@@ -13,7 +13,10 @@ load_dotenv()
 
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
-MODEL_NAME = "gemini-3-flash-preview"
+# 프리뷰 모델은 예고 없이 내려간다(gemini-3-flash-preview 가 404 로 사라져
+# 세 기능이 모두 멈췄다). GA 모델을 기본으로 쓰고, 다음에 같은 일이 생기면
+# 재배포 없이 Vercel 환경변수 GEMINI_MODEL 로 갈아끼울 수 있게 둔다.
+MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 
 PROMPT = """[IMPORTANT] Respond in JSON only.
 
